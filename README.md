@@ -138,3 +138,170 @@ API実行後は `/api/v1/series` や `/api/v1/export` で結果を確認して�
 通常の `make reset` は従来どおりbind mountのデータを保持します。
 
 設計メモ: [UTCの月境界とParquetパーティショニング](docs/cold-storage-time-and-partitioning.md)
+
+## DuckDB CLI (作業ブランチでの試用)
+
+DuckDB公式CLIコンテナをオンデマンドで起動します。
+`make up` では起動しません。R2接続は必要なときに設定します。
+
+```sh
+make duckdb
+```
+
+CLIでの確認例：
+
+```sql
+SELECT version();
+SELECT 1 + 2 AS result;
+```
+
+`.quit` で終了できます。初期状態はインメモリDBです。
+永続化する場合はCLIで `.open demo.duckdb` と入力してください。
+ホストの `work/duckdb/` がコンテナの `/workspace` にマウントされており、
+DBファイルや今後生成するParquetはこのディレクトリに保存できます。
+`work/` はGit管理対象外です。
+
+### Cloudflare R2接続とParquet読み書き
+
+`.env.example` に示した `R2_ACCOUNT_ID`、`R2_BUCKET`、
+`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY` を
+Git管理対象外の `.env` に設定してください。
+R2 APIトークンには対象バケットの読み書き権限が必要です。
+
+```sh
+make duckdb-r2
+```
+
+CLI内で準備したSQLを実行します。
+
+```sql
+.read /workspace/r2-init.sql
+```
+
+このSQLは `httpfs` をロードし、一時的なR2 Secretを作成します。
+アクセスキーとシークレットキーはCompose経由でコンテナの
+`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` に渡し、
+DuckDBの `credential_chain` が読み込みます。
+SQLファイルにはAccount IDのみを記録し、アクセスキーは書きません。
+`work/` はGit管理対象外です。Secretはセッション終了で失われます。
+
+接続確認は次のSQLを用います。バケット名の部分は実際の値に置き換えます。
+同じキーで `COPY` を再実行すると上書き・エラーになり得るため、
+`smoke-test` 専用キーだけを使ってください。
+
+```sql
+COPY (
+  SELECT TIMESTAMPTZ '2026-11-01 00:00:00+00' AS timestamp,
+         '001' AS site_id, '1' AS sensor_id, 23.5 AS value
+) TO 'r2://YOUR_BUCKET/smoke-test/duckdb-test.parquet' (FORMAT PARQUET);
+
+SELECT * FROM read_parquet(
+  'r2://YOUR_BUCKET/smoke-test/duckdb-test.parquet'
+);
+```
+
+初回は `INSTALL httpfs` のためインターネット接続が必要です。
+`make duckdb` は従来どおりR2設定なしで起動できます。
+
+### Parquet layout experiment (local first)
+
+ArchiverなしでWide/Long、疎なタイムスタンプ、月別ファイル、Hive partition、スキーマ差異を検証します。
+実験は**ローカルの `work/duckdb/layout-test/` のみに書き込み**、R2上の既存データを変更しません。
+既存のR2接続確認とは独立したテストです。
+
+```sh
+make duckdb-layout
+```
+
+DuckDB CLIで次を順に実行してください。
+
+```sql
+.read /workspace/sql/01-layout-generate.sql
+.read /workspace/sql/02-layout-queries.sql
+```
+
+生成されるデータは2026-09-30と2026-10-01の2日間、1分刻みの4系列です。
+系列ごとに1/2/5/60分という異なるサンプリング間隔を設定し、
+Wide形式のNULLとLong形式の行数を比較できます。
+
+- `layout-test/long/` : 9月、10月の2つのParquetファイル。10月のみ `quality` 列を追加
+- `layout-test/wide/` : 9月、10月の2つのParquetファイル。センサー別の列を使用
+- `layout-test/hive/` : `year=.../month=.../` 形式のパーティション
+
+検索SQLでは `union_by_name=true` による列差異の吸収、
+`hive_partitioning=true` による年月列の認識、月境界での検索を確認します。
+
+`COPY` 出力が既に存在する状態で生成SQLを再実行すると失敗する場合があります。
+再実行する際は、テスト専用の `work/duckdb/layout-test/` の成果物を退避または削除してください。
+本実験は小規模データの機能検証であり、ファイルサイズ・性能の優劣を結論づけるものではありません。
+
+### Large-scale Parquet comparison: 300 series / one UTC month
+
+Archiverなしで生成する比較用データです。2026年10月1日00:00 UTCから
+11月1日00:00 UTC直前までの31日を対象にします。
+
+- アナログ値: 200系列、1分間隔（合計8,928,000サンプル）
+- ON/OFF値: 100系列、UTC日次の再記録に加え約7日ごとの変化時記録
+- Long: `timestamp, metric, value`
+- Wide: `timestamp` と300系列の列（ON/OFFが未記録の分はNULL）
+- どちらもZSTD圧縮のParquet、元データは共通
+
+```sh
+git pull
+make duckdb-layout-large
+```
+
+起動したDuckDB CLIで次を実行してください（少し時間がかかる場合があります）。
+
+```sql
+.read /workspace/sql/03-large-layout-generate.sql
+.read /workspace/sql/04-large-layout-queries.sql
+```
+
+生成先はローカルの `work/duckdb/layout-large/` のみです。
+**R2には書き込みません**。同じパスのファイルが既存の場合は
+`COPY` が失敗する場合があるため、再実行前にテスト専用Parquetを整理してください。
+
+ホスト側でサイズを比較します。
+
+```sh
+stat -c '%s %n' work/duckdb/layout-large/*.parquet
+```
+
+読み取り速度はキャッシュと実行順に左右されます。
+ファイルサイズだけでなく、DuckDBで実際に頻繁に使う検索クエリの
+`EXPLAIN ANALYZE` も両形式で比較してください。
+
+### Metric順にソートしたLong形式との比較
+
+既存の約893万件のLong Parquetから、`metric, timestamp`順に並べ替えた第3のファイルを生成します。
+Wideや従来Longは変更せず、R2にも書き込みません。
+
+```sh
+git pull
+make duckdb-layout-large
+```
+
+DuckDB CLIで以下を実行します。
+
+```sql
+.read /workspace/sql/05-long-sorted-generate.sql
+.read /workspace/sql/06-long-sorted-benchmark.sql
+```
+
+新ファイル: `work/duckdb/layout-large/long-by-metric-2026-10.parquet`。
+SQL 05は出力ファイルを新規作成するため、再実行前に新ファイルだけ削除してください。
+SQL 06は、Wide・従来Long・系列順Longの**単一系列の月間平均**と**1時間範囲の平均**を
+`EXPLAIN ANALYZE`で比較します。各クエリを複数回、実行順を入れ替えて測ってください。
+
+ファイルサイズの比較:
+
+```sh
+stat -c '%s %n' work/duckdb/layout-large/*.parquet
+```
+
+検証ポイントは、`metric`条件によるParquet Row Groupの統計情報を使ったスキップ、
+スキャン時間、容量の変化です。今回の生成では元のLongと同じZSTD圧縮、
+DuckDBのデフォルトRow Group設定を使用します。
+`EXPLAIN ANALYZE`の出力行数はフィルタ後の行数であり、
+物理的な読取バイト数そのものではありません。
