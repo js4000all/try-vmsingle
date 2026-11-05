@@ -33,3 +33,6 @@ go.work.sum
 
 # Local Go build output
 /bin/
+
+# Local DuckDB workspace (DB and Parquet files)
+/work/
