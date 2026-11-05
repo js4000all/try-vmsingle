@@ -46,4 +46,10 @@ services:
       OTLP_METRICS_ENDPOINT: http://otel-collector:4318/v1/metrics
     depends_on:
       - otel-collector
+  duckdb:
+    profiles: ["tools"]
+    image: duckdb/duckdb:1.4.5
+    working_dir: /workspace
+    volumes:
+      - ./work/duckdb:/workspace
 
