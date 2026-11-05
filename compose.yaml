@@ -1,0 +1,14 @@
+services:
+  vmsingle:
+    image: victoriametrics/victoria-metrics:v1.154.1
+    ports:
+      - "127.0.0.1:8428:8428"
+    command:
+      - "-storageDataPath=/storage"
+      - "-retentionPeriod=${VM_RETENTION_PERIOD:-6}"
+    volumes:
+      - vmdata:/storage
+    restart: unless-stopped
+
+volumes:
+  vmdata:
