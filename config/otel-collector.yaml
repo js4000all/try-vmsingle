@@ -9,7 +9,7 @@ processors:
     timeout: 1s
 
 exporters:
-  otlp_http/victoriametrics:
+  otlphttp/victoriametrics:
     metrics_endpoint: http://vmsingle:8428/opentelemetry/v1/metrics
     compression: gzip
 
@@ -18,4 +18,4 @@ service:
     metrics:
       receivers: [otlp]
       processors: [batch]
-      exporters: [otlp_http/victoriametrics]
+      exporters: [otlphttp/victoriametrics]
