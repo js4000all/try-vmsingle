@@ -10,7 +10,7 @@ prepare-dirs:
 build:
 	mkdir -p bin
 	docker compose build go-builder
-	docker compose run --rm --no-deps --user "$(id -u):$(id -g)" go-builder go build -o /out/sample-generator ./cmd/sample-generator
+	docker compose run --rm --no-deps --user "$$(id -u):$$(id -g)" -e GOCACHE=/tmp/go-build -e GOPATH=/tmp/go go-builder go build -o /out/sample-generator ./cmd/sample-generator
 
 generate: build
 	docker compose run --rm sample-generator
