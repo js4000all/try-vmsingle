@@ -125,13 +125,16 @@ curl -fsSG http://localhost:8428/api/v1/export \
 
 ```sh
 make clear-vmsingle
-make up
 ```
 
-`clear-vmsingle` は対象が固定パスであることを検証し、`DELETE` の明示入力後、
-Composeサービスを停止してから保存ディレクトリの**中身だけ**を削除します。
-削除対象は `/srv/volumes/try-vmsingle/vmsingle/vmdata` の全保存データであり、
-元に戻せません。完了後に `make up` でサービスを再起動してください。
+`clear-vmsingle` は、起動中のvmsingleに対して
+`POST /api/v1/admin/tsdb/delete_series` を実行し、
+**全メトリクス・全期間の時系列を論理削除**します。
+`DELETE` の明示入力が必要です。削除は取り消せません。
+
+vmsingleの停止・再起動や、bind mount内のファイル削除は行いません。
+ストレージ領域は即座には解放されず、バックグラウンドのマージで回収されます。
+API実行後は `/api/v1/series` や `/api/v1/export` で結果を確認してください。
 通常の `make reset` は従来どおりbind mountのデータを保持します。
 
 設計メモ: [UTCの月境界とParquetパーティショニング](docs/cold-storage-time-and-partitioning.md)
