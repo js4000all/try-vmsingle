@@ -1,6 +1,6 @@
 VM_DATA_DIR := /srv/volumes/try-vmsingle/vmsingle/vmdata
 
-.PHONY: up down ps logs prepare-dirs reset clear-vmsingle build test generate
+.PHONY: up down ps logs prepare-dirs reset clear-vmsingle build test generate duckdb
 
 # Create (or verify) the host directory with permissions for UID/GID 1000.
 # sudo may prompt for a password.
@@ -39,3 +39,8 @@ logs:
 # Stop and remove containers only. Bind-mounted host data is preserved.
 reset:
 	docker compose down -v
+
+# Start an ephemeral interactive DuckDB CLI; workspace files persist on host.
+duckdb:
+	mkdir -p work/duckdb
+	docker compose run --rm --no-deps --user "$$(id -u):$$(id -g)" duckdb
