@@ -14,7 +14,7 @@ build:
 
 test:
 	docker compose build go-builder
-	docker compose run --rm --no-deps --user "$(id -u):$(id -g)" -e GOCACHE=/tmp/go-build -e GOPATH=/tmp/go go-builder go test ./...
+	docker compose run --rm --no-deps --user "$$(id -u):$$(id -g)" -e GOCACHE=/tmp/go-build -e GOPATH=/tmp/go go-builder go test ./...
 
 # Run generated Linux binary directly on the host (does not rebuild).
 generate:
