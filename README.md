@@ -202,3 +202,35 @@ SELECT * FROM read_parquet(
 
 初回は `INSTALL httpfs` のためインターネット接続が必要です。
 `make duckdb` は従来どおりR2設定なしで起動できます。
+
+### Parquet layout experiment (local first)
+
+ArchiverなしでWide/Long、疎なタイムスタンプ、月別ファイル、Hive partition、スキーマ差異を検証します。
+実験は**ローカルの `work/duckdb/layout-test/` のみに書き込み**、R2上の既存データを変更しません。
+既存のR2接続確認とは独立したテストです。
+
+```sh
+make duckdb-layout
+```
+
+DuckDB CLIで次を順に実行してください。
+
+```sql
+.read /workspace/sql/01-layout-generate.sql
+.read /workspace/sql/02-layout-queries.sql
+```
+
+生成されるデータは2026-09-30と2026-10-01の2日間、1分刻みの4系列です。
+系列ごとに1/2/5/60分という異なるサンプリング間隔を設定し、
+Wide形式のNULLとLong形式の行数を比較できます。
+
+- `layout-test/long/` : 9月、10月の2つのParquetファイル。10月のみ `quality` 列を追加
+- `layout-test/wide/` : 9月、10月の2つのParquetファイル。センサー別の列を使用
+- `layout-test/hive/` : `year=.../month=.../` 形式のパーティション
+
+検索SQLでは `union_by_name=true` による列差異の吸収、
+`hive_partitioning=true` による年月列の認識、月境界での検索を確認します。
+
+`COPY` 出力が既に存在する状態で生成SQLを再実行すると失敗する場合があります。
+再実行する際は、テスト専用の `work/duckdb/layout-test/` の成果物を退避または削除してください。
+本実験は小規模データの機能検証であり、ファイルサイズ・性能の優劣を結論づけるものではありません。
