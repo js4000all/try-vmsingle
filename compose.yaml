@@ -14,3 +14,34 @@ services:
         bind:
           create_host_path: false
     restart: unless-stopped
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.138.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./config/otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    depends_on:
+      - vmsingle
+    restart: unless-stopped
+
+  go-builder:
+    profiles: ["tools"]
+    build:
+      context: .
+      dockerfile: docker/go-builder/Dockerfile
+    working_dir: /src
+    volumes:
+      - ./sample-generator:/src:ro
+      - ./bin:/out
+
+  sample-generator:
+    profiles: ["tools"]
+    image: alpine:3.21
+    working_dir: /app
+    volumes:
+      - ./bin:/app:ro
+    command: ["/app/sample-generator"]
+    environment:
+      OTLP_METRICS_ENDPOINT: http://otel-collector:4318/v1/metrics
+    depends_on:
+      - otel-collector
+
