@@ -1,6 +1,13 @@
-.PHONY: up down ps logs reset
+VM_DATA_DIR := /srv/volumes/try-vmsingle/vmsingle/vmdata
 
-up:
+.PHONY: up down ps logs prepare-dirs reset
+
+# Create (or verify) the host directory with permissions for UID/GID 1000.
+# sudo may prompt for a password.
+prepare-dirs:
+	sudo install -d -o 1000 -g 1000 -m 0755 "$(VM_DATA_DIR)"
+
+up: prepare-dirs
 	docker compose up -d
 
 down:
@@ -12,6 +19,6 @@ ps:
 logs:
 	docker compose logs -f vmsingle
 
-# WARNING: removes the named volume and all local VictoriaMetrics data.
+# Stop and remove containers only. Bind-mounted host data is preserved.
 reset:
 	docker compose down -v
