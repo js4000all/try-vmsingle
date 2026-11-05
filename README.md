@@ -234,3 +234,40 @@ Wide形式のNULLとLong形式の行数を比較できます。
 `COPY` 出力が既に存在する状態で生成SQLを再実行すると失敗する場合があります。
 再実行する際は、テスト専用の `work/duckdb/layout-test/` の成果物を退避または削除してください。
 本実験は小規模データの機能検証であり、ファイルサイズ・性能の優劣を結論づけるものではありません。
+
+### Large-scale Parquet comparison: 300 series / one UTC month
+
+Archiverなしで生成する比較用データです。2026年10月1日00:00 UTCから
+11月1日00:00 UTC直前までの31日を対象にします。
+
+- アナログ値: 200系列、1分間隔（合計8,928,000サンプル）
+- ON/OFF値: 100系列、UTC日次の再記録に加え約7日ごとの変化時記録
+- Long: `timestamp, metric, value`
+- Wide: `timestamp` と300系列の列（ON/OFFが未記録の分はNULL）
+- どちらもZSTD圧縮のParquet、元データは共通
+
+```sh
+git pull
+make duckdb-layout-large
+```
+
+起動したDuckDB CLIで次を実行してください（少し時間がかかる場合があります）。
+
+```sql
+.read /workspace/sql/03-large-layout-generate.sql
+.read /workspace/sql/04-large-layout-queries.sql
+```
+
+生成先はローカルの `work/duckdb/layout-large/` のみです。
+**R2には書き込みません**。同じパスのファイルが既存の場合は
+`COPY` が失敗する場合があるため、再実行前にテスト専用Parquetを整理してください。
+
+ホスト側でサイズを比較します。
+
+```sh
+stat -c '%s %n' work/duckdb/layout-large/*.parquet
+```
+
+読み取り速度はキャッシュと実行順に左右されます。
+ファイルサイズだけでなく、DuckDBで実際に頻繁に使う検索クエリの
+`EXPLAIN ANALYZE` も両形式で比較してください。
