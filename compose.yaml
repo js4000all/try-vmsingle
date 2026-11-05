@@ -47,6 +47,10 @@ services:
     depends_on:
       - otel-collector
   duckdb:
+    environment:
+      AWS_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-}
+      AWS_REGION: auto
     profiles: ["tools"]
     image: duckdb/duckdb:1.4.5
     working_dir: /workspace
