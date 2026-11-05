@@ -271,3 +271,37 @@ stat -c '%s %n' work/duckdb/layout-large/*.parquet
 読み取り速度はキャッシュと実行順に左右されます。
 ファイルサイズだけでなく、DuckDBで実際に頻繁に使う検索クエリの
 `EXPLAIN ANALYZE` も両形式で比較してください。
+
+### Metric順にソートしたLong形式との比較
+
+既存の約893万件のLong Parquetから、`metric, timestamp`順に並べ替えた第3のファイルを生成します。
+Wideや従来Longは変更せず、R2にも書き込みません。
+
+```sh
+git pull
+make duckdb-layout-large
+```
+
+DuckDB CLIで以下を実行します。
+
+```sql
+.read /workspace/sql/05-long-sorted-generate.sql
+.read /workspace/sql/06-long-sorted-benchmark.sql
+```
+
+新ファイル: `work/duckdb/layout-large/long-by-metric-2026-10.parquet`。
+SQL 05は出力ファイルを新規作成するため、再実行前に新ファイルだけ削除してください。
+SQL 06は、Wide・従来Long・系列順Longの**単一系列の月間平均**と**1時間範囲の平均**を
+`EXPLAIN ANALYZE`で比較します。各クエリを複数回、実行順を入れ替えて測ってください。
+
+ファイルサイズの比較:
+
+```sh
+stat -c '%s %n' work/duckdb/layout-large/*.parquet
+```
+
+検証ポイントは、`metric`条件によるParquet Row Groupの統計情報を使ったスキップ、
+スキャン時間、容量の変化です。今回の生成では元のLongと同じZSTD圧縮、
+DuckDBのデフォルトRow Group設定を使用します。
+`EXPLAIN ANALYZE`の出力行数はフィルタ後の行数であり、
+物理的な読取バイト数そのものではありません。
