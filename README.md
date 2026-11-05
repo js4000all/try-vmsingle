@@ -142,7 +142,7 @@ API実行後は `/api/v1/series` や `/api/v1/export` で結果を確認して�
 ## DuckDB CLI (作業ブランチでの試用)
 
 DuckDB公式CLIコンテナをオンデマンドで起動します。
-`make up` では起動せず、R2の接続設定もまだ行いません。
+`make up` では起動しません。R2接続は必要なときに設定します。
 
 ```sh
 make duckdb
@@ -160,3 +160,45 @@ SELECT 1 + 2 AS result;
 ホストの `work/duckdb/` がコンテナの `/workspace` にマウントされており、
 DBファイルや今後生成するParquetはこのディレクトリに保存できます。
 `work/` はGit管理対象外です。
+
+### Cloudflare R2接続とParquet読み書き
+
+`.env.example` に示した `R2_ACCOUNT_ID`、`R2_BUCKET`、
+`R2_ACCESS_KEY_ID`、`R2_SECRET_ACCESS_KEY` を
+Git管理対象外の `.env` に設定してください。
+R2 APIトークンには対象バケットの読み書き権限が必要です。
+
+```sh
+make duckdb-r2
+```
+
+CLI内で準備したSQLを実行します。
+
+```sql
+.read /workspace/r2-init.sql
+```
+
+このSQLは `httpfs` をロードし、一時的なR2 Secretを作成します。
+アクセスキーとシークレットキーはCompose経由でコンテナの
+`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` に渡し、
+DuckDBの `credential_chain` が読み込みます。
+SQLファイルにはAccount IDのみを記録し、アクセスキーは書きません。
+`work/` はGit管理対象外です。Secretはセッション終了で失われます。
+
+接続確認は次のSQLを用います。バケット名の部分は実際の値に置き換えます。
+同じキーで `COPY` を再実行すると上書き・エラーになり得るため、
+`smoke-test` 専用キーだけを使ってください。
+
+```sql
+COPY (
+  SELECT TIMESTAMPTZ '2026-11-01 00:00:00+00' AS timestamp,
+         '001' AS site_id, '1' AS sensor_id, 23.5 AS value
+) TO 'r2://YOUR_BUCKET/smoke-test/duckdb-test.parquet' (FORMAT PARQUET);
+
+SELECT * FROM read_parquet(
+  'r2://YOUR_BUCKET/smoke-test/duckdb-test.parquet'
+);
+```
+
+初回は `INSTALL httpfs` のためインターネット接続が必要です。
+`make duckdb` は従来どおりR2設定なしで起動できます。
