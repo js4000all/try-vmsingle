@@ -138,3 +138,25 @@ API実行後は `/api/v1/series` や `/api/v1/export` で結果を確認して�
 通常の `make reset` は従来どおりbind mountのデータを保持します。
 
 設計メモ: [UTCの月境界とParquetパーティショニング](docs/cold-storage-time-and-partitioning.md)
+
+## DuckDB CLI (作業ブランチでの試用)
+
+DuckDB公式CLIコンテナをオンデマンドで起動します。
+`make up` では起動せず、R2の接続設定もまだ行いません。
+
+```sh
+make duckdb
+```
+
+CLIでの確認例：
+
+```sql
+SELECT version();
+SELECT 1 + 2 AS result;
+```
+
+`.quit` で終了できます。初期状態はインメモリDBです。
+永続化する場合はCLIで `.open demo.duckdb` と入力してください。
+ホストの `work/duckdb/` がコンテナの `/workspace` にマウントされており、
+DBファイルや今後生成するParquetはこのディレクトリに保存できます。
+`work/` はGit管理対象外です。
