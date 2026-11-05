@@ -71,3 +71,38 @@ curl -f http://localhost:8428/health
 
 - [VictoriaMetrics single-node](https://docs.victoriametrics.com/victoriametrics/)
 - [VictoriaMetrics Docker Compose example](https://github.com/VictoriaMetrics/VictoriaMetrics/blob/master/deployment/docker/compose-vm-single.yml)
+
+## OTLP を使ったサンプルデータ登録
+
+Go の模擬PLC Readerは、3つのGaugeをOTLP/HTTP (JSON)でCollectorへ送ります。
+CollectorはOTLP/HTTPでvmsingleへ転送します。今回は単発の投入のみを実装しています。
+Goはホストへのインストール不要で、Docker内でビルドします。
+
+```sh
+make up
+make build
+make generate
+```
+
+`make generate` はビルドも行います。生成バイナリは `bin/sample-generator`
+（Git管理対象外）に配置されます。送信が成功すると、Collectorがリクエストを
+受け付けた旨が表示されます。**Collectorの応答成功はvmsingleへの保存完了を意味しません。**
+
+バッチ転送のため少し待ってから、保存済みデータを確認してください。
+
+```sh
+curl -fsSG http://localhost:8428/api/v1/export \
+  --data-urlencode 'match[]=plc_temperature_celsius' \
+  --data-urlencode 'start=-1h'
+```
+
+`plc_temperature_celsius=23.5`, `plc_pressure_mpa=0.42`,
+`plc_running=1` を送信します。各点には `site_id=site001`,
+`device_id=plc001` を付加します。OTelリソース属性には
+`service.name=sample-generator` を設定します。
+
+`make logs` ではvmsingleとCollector双方のログを確認できます。
+CollectorのOTLP受信ポート4318はホストに公開していません。
+
+注意: `make generate` はvmsingleのデータディレクトリを作成しないため、
+最初に `make up` を実行してください。
