@@ -57,4 +57,5 @@ services:
     working_dir: /workspace
     volumes:
       - ./work/duckdb:/workspace
+      - ./sql:/workspace/sql:ro
 
