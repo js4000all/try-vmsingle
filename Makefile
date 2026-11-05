@@ -1,6 +1,6 @@
 VM_DATA_DIR := /srv/volumes/try-vmsingle/vmsingle/vmdata
 
-.PHONY: up down ps logs prepare-dirs reset clear-vmsingle build test generate duckdb duckdb-r2
+.PHONY: up down ps logs prepare-dirs reset clear-vmsingle build test generate duckdb duckdb-r2 duckdb-layout
 
 # Create (or verify) the host directory with permissions for UID/GID 1000.
 # sudo may prompt for a password.
@@ -48,4 +48,9 @@ duckdb:
 # Prepare a session-only R2 secret (credentials arrive via environment variables).
 duckdb-r2:
 	sh scripts/prepare-duckdb-r2.sh
+	docker compose run --rm --no-deps --user "$$(id -u):$$(id -g)" duckdb
+
+# Create destination directories and start DuckDB for local layout experiments.
+duckdb-layout:
+	mkdir -p work/duckdb/layout-test/long work/duckdb/layout-test/wide work/duckdb/layout-test/hive
 	docker compose run --rm --no-deps --user "$$(id -u):$$(id -g)" duckdb
