@@ -1,6 +1,6 @@
 VM_DATA_DIR := /srv/volumes/try-vmsingle/vmsingle/vmdata
 
-.PHONY: up down ps logs prepare-dirs reset build generate
+.PHONY: up down ps logs prepare-dirs reset clear-vmsingle build test generate
 
 # Create (or verify) the host directory with permissions for UID/GID 1000.
 # sudo may prompt for a password.
@@ -12,8 +12,17 @@ build:
 	docker compose build go-builder
 	docker compose run --rm --no-deps --user "$$(id -u):$$(id -g)" -e GOCACHE=/tmp/go-build -e GOPATH=/tmp/go go-builder go build -o /out/sample-generator ./cmd/sample-generator
 
-generate: build
-	docker compose run --rm sample-generator
+test:
+	docker compose build go-builder
+	docker compose run --rm --no-deps --user "$$(id -u):$$(id -g)" -e GOCACHE=/tmp/go-build -e GOPATH=/tmp/go go-builder go test ./...
+
+# Run generated Linux binary directly on the host (does not rebuild).
+generate:
+	./bin/sample-generator
+
+# Destructive operation: asks for the literal DELETE before clearing.
+clear-vmsingle:
+	sh scripts/clear-vmsingle.sh
 
 up: prepare-dirs
 	docker compose up -d

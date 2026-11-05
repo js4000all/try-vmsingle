@@ -6,7 +6,7 @@ cold storage 構成の実証リポジトリです。
 ## 現在の実装範囲
 
 まずは Docker Compose による vmsingle の起動のみを用意しています。
-Archiver、R2 連携、DuckDB、Go ビルドコンテナは今後追加します。
+OTel Collectorと模擬PLC Readerのデータ登録まで対応しています。Archiver、R2連携、DuckDBは今後追加します。
 
 ## 前提条件
 
@@ -56,7 +56,7 @@ curl -f http://localhost:8428/health
 | `make up` | 保存先を準備し、vmsingle をバックグラウンドで起動 |
 | `make down` | コンテナを停止・削除（データ保持） |
 | `make ps` | コンテナ状態を表示 |
-| `make logs` | vmsingle のログを追跡 |
+| `make logs` | vmsingleとOTel Collectorのログを追跡 |
 | `make reset` | コンテナを停止・削除（**bind mount の保存データは保持**） |
 
 `.env` は任意です。作成しない場合も保持期間は6か月になります。
@@ -72,37 +72,66 @@ curl -f http://localhost:8428/health
 - [VictoriaMetrics single-node](https://docs.victoriametrics.com/victoriametrics/)
 - [VictoriaMetrics Docker Compose example](https://github.com/VictoriaMetrics/VictoriaMetrics/blob/master/deployment/docker/compose-vm-single.yml)
 
-## OTLP を使ったサンプルデータ登録
+## 1分間隔のサンプルデータ生成
 
-Go の模擬PLC Readerは、3つのGaugeをOTLP/HTTP (JSON)でCollectorへ送ります。
-CollectorはOTLP/HTTPでvmsingleへ転送します。今回は単発の投入のみを実装しています。
-Goはホストへのインストール不要で、Docker内でビルドします。
+模擬PLC Readerとして、`temperature_celsius`を4シリーズ生成します。
+
+- `site_id`: `001`, `002`
+- `sensor_id`: `1`, `2`
+- 1分間隔、UTC基準の月初00:00から実行時刻以前の直近の分まで
+- 決定論的な温度変動。センサーの業務メタデータは未定義
+- デフォルトは当月のみ（`--months 1`）。`--months 3`なら前々月1日から当月の現在時点まで
+- 1 UTC日ごとにOTLP/HTTP JSONで送信。1日あたり最大5,760データポイント
+
+GoのSDKをホストへ導入せず、Docker内でLinux向け実行ファイルをビルドします。
+**ホストで直接実行する想定のため、同じCPUアーキテクチャのLinuxホストを前提**とします。
 
 ```sh
 make up
 make build
-make generate
+make test
+./bin/sample-generator
+./bin/sample-generator --months 3
 ```
 
-`make generate` はビルドも行います。生成バイナリは `bin/sample-generator`
-（Git管理対象外）に配置されます。送信が成功すると、Collectorがリクエストを
-受け付けた旨が表示されます。**Collectorの応答成功はvmsingleへの保存完了を意味しません。**
+デフォルトの送信先は `http://127.0.0.1:4318/v1/metrics` です。
+OTel Collectorのポート4318はホストのループバックアドレスだけに公開します。
+送信先を変更する場合は以下の環境変数を使います。
 
-バッチ転送のため少し待ってから、保存済みデータを確認してください。
+```sh
+OTLP_METRICS_ENDPOINT=http://127.0.0.1:4318/v1/metrics ./bin/sample-generator --months 2
+```
+
+`make generate`も、既にビルド済みのバイナリをホスト上で実行します。
+`bin/` はGit管理対象外です。
+
+### vmsingleで生データを確認
+
+Collector側が成功を返しただけではvmsingleへの保存を保証しません。
+バッチ転送後、次のAPIで確認してください。
 
 ```sh
 curl -fsSG http://localhost:8428/api/v1/export \
-  --data-urlencode 'match[]=plc_temperature_celsius' \
-  --data-urlencode 'start=-1h'
+  --data-urlencode 'match[]=temperature_celsius{site_id="001",sensor_id="1"}' \
+  --data-urlencode 'start=-2h'
 ```
 
-`plc_temperature_celsius=23.5`, `plc_pressure_mpa=0.42`,
-`plc_running=1` を送信します。各点には `site_id=site001`,
-`device_id=plc001` を付加します。OTelリソース属性には
-`service.name=sample-generator` を設定します。
+月単位の過去データも含めて件数を確認する際は、適切なUTC時刻範囲を指定します。
+現行のvmsingle保持期間はデフォルト6か月です。`--months`をそれより大きくすると
+古いデータは保持対象外になり得ます。また**同じ期間を繰り返し生成すると重複投入**に
+なるため、実験条件を揃える場合は次の全消去を使用してください。
 
-`make logs` ではvmsingleとCollector双方のログを確認できます。
-CollectorのOTLP受信ポート4318はホストに公開していません。
+### vmsingleの全データ削除
 
-注意: `make generate` はvmsingleのデータディレクトリを作成しないため、
-最初に `make up` を実行してください。
+```sh
+make clear-vmsingle
+make up
+```
+
+`clear-vmsingle` は対象が固定パスであることを検証し、`DELETE` の明示入力後、
+Composeサービスを停止してから保存ディレクトリの**中身だけ**を削除します。
+削除対象は `/srv/volumes/try-vmsingle/vmsingle/vmdata` の全保存データであり、
+元に戻せません。完了後に `make up` でサービスを再起動してください。
+通常の `make reset` は従来どおりbind mountのデータを保持します。
+
+設計メモ: [UTCの月境界とParquetパーティショニング](docs/cold-storage-time-and-partitioning.md)
