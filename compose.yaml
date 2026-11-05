@@ -1,14 +1,16 @@
 services:
   vmsingle:
     image: victoriametrics/victoria-metrics:v1.155.0
+    user: "1000:1000"
     ports:
       - "127.0.0.1:8428:8428"
     command:
       - "-storageDataPath=/storage"
       - "-retentionPeriod=${VM_RETENTION_PERIOD:-6}"
     volumes:
-      - vmdata:/storage
+      - type: bind
+        source: /srv/volumes/try-vmsingle/vmsingle/vmdata
+        target: /storage
+        bind:
+          create_host_path: false
     restart: unless-stopped
-
-volumes:
-  vmdata:
